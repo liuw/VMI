@@ -13,6 +13,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <ctype.h>
+#include <string.h>
 
 #include <xenctrl.h>
 #include <xs.h>
@@ -20,13 +22,15 @@
 
 #include "vmi.h"
 #include "vmi_util.h"
+#include "offset.h"
 
 unsigned long nr_pages_to_map = 0;
 unsigned long shinfo_mfn = 0, arch_shinfo_mfn = 0;
 shared_info_t *shinfo = 0;
 struct arch_shared_info *arch_shinfo = 0;
-void *p2m_list_list = 0, *p2m_list = 0, *p2m_table;
-unsigned long max_pfn = 0;
+void *p2m_list_list = 0, *p2m_list = 0, *p2m_table = 0;
+unsigned char *region = 0;
+unsigned long max_pfn;
 static int xc_handle = -1;
 
 int main(int argc, char **argv)
@@ -35,7 +39,10 @@ int main(int argc, char **argv)
      int domid = -1;
      char buf[20]; // This should be enough by now
      char *cptr;
-     unsigned long init_task_vaddr = 0, mfn = 0;
+     unsigned long init_task_vaddr = 0, init_task_tsk = 0;
+     int i = 0;
+     unsigned long offset, pfn;
+     unsigned long nextp = 0;
 
      xc_handle = xc_interface_open();
      if (xc_handle == -1)
@@ -57,14 +64,10 @@ int main(int argc, char **argv)
      cptr = buf;
      domid = strtoul(cptr, &cptr, 10);
      init_task_vaddr = strtoul(cptr, NULL, 16);
-     /* printf("%d\n%08x\n", domid, init_task_vaddr); */
-
      nr_pages_to_map = vmi_get_domain_max_mem(xc_handle, domid);
+     munmap(shinfo, getpagesize());
      
-     printf("%x\n", nr_pages_to_map);
-     
-
-//
+// mapping of p2m table
      shinfo_mfn = vmi_get_domain_shinfo(xc_handle, domid);
      
      shinfo = (shared_info_t*)vmi_map_range_ro(xc_handle, domid, 
@@ -100,11 +103,50 @@ int main(int argc, char **argv)
 	  printf("Unable to map p2m table pages\n");
 	  exit(-1);
      }
-//
+// done mapping p2m table
+     init_task_tsk = init_task_vaddr + TSK_OFFSET;
+     pfn = (init_task_vaddr - KERNEL_OFFSET) >> 12;
+     region = vmi_map_range_ro(xc_handle, domid, getpagesize(),
+			       ((xen_pfn_t*)p2m_table)[pfn]);
+     if (region == NULL) {
+	  printf("Unable to map region pages\n");
+	  exit(-1);
+     }
+
+     offset = (init_task_vaddr - KERNEL_OFFSET) & ~PAGE_MASK;
+
+     printf("%s\n", ((char*)region+offset+COMM_OFFSET) );
+
+
+     memcpy((void*)&nextp, (const void*)(region+offset+TSK_OFFSET), 4);
+     munmap(region, getpagesize());
+
+     while (1) {
+	  pfn = (nextp - KERNEL_OFFSET) >> 12;
+	  offset = (nextp - KERNEL_OFFSET) & ~PAGE_MASK;
+
+	  region = vmi_map_range_ro(xc_handle, domid, getpagesize(),
+				    ((xen_pfn_t*)p2m_table)[pfn]);
+	  if (region == NULL) {
+	       printf("Unable to map region pages\n");
+	       exit(-1);
+	  }
+	  
+	  printf("%s\n", ((char*)region+offset+COMM_TO_TSK_OFFSET));
+	  
+	  memcpy(&nextp, region+offset, 4);
+
+	  if (nextp == init_task_tsk)
+	       break;
+
+	  munmap(region, getpagesize());
+     }
+
+     if (region)
+	  munmap(region, getpagesize());
 
 
      /* clean up */
-     munmap(shinfo, getpagesize());
      close(xc_handle);
      return 0;
 }

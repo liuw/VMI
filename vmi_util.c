@@ -34,3 +34,7 @@ void *vmi_map_range_ro(int xc_handle, int domid,
 					size, PROT_READ,
 					mfn);
 }
+
+
+void dump_page(void *p)
+{}

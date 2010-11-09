@@ -5,4 +5,10 @@
 #define FPP 1024 /* entries per page */
 /*#define SIZE_TO_MAP (1024*1024*4 * 1024)*/
 
+struct list_head 
+{
+     struct list_head *next, *prev;
+};
+
+
 #endif /* _VMI_H_ */
