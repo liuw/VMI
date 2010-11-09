@@ -2,4 +2,6 @@ This program reads file 'config', make sure its content is correct.
 
 And offsets are defined in offset.h
 
+Why bother when there is XenAccess project? Just for fun.
+
 Wei LIU <liuw@liuw.name>
